@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: clinic-release
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinic-release
+  namespace: clinic-release
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clinic-release
+  template:
+    metadata:
+      labels:
+        app: clinic-release
+    spec:
+      containers:
+        - name: clinic
+          image: clinic-release-lab:v1
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinic-release
+  namespace: clinic-release
+spec:
+  type: ClusterIP
+  selector:
+    app: clinic-release
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+        kubernetes-rollout:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Create a temporary Kubernetes cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: clinic-ci
+
+      - name: Build and load the app image
+        run: |
+          docker build -t clinic-release-lab:v1 .
+          kind load docker-image clinic-release-lab:v1 --name clinic-ci
+
+      - name: Apply the manifest and verify the rollout
+        run: |
+          kubectl --context kind-clinic-ci apply -f k8s/app.yaml
+          kubectl --context kind-clinic-ci -n clinic-release \
+            rollout status deployment/clinic-release --timeout=90s
+
+      - name: Show Kubernetes diagnostics if the job fails
+        if: failure()
+        run: |
+          kubectl --context kind-clinic-ci -n clinic-release get pods -o wide || true
+          kubectl --context kind-clinic-ci -n clinic-release get events \
+            --sort-by=.lastTimestamp || true
