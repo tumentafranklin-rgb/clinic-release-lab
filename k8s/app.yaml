@@ -27,7 +27,7 @@ spec:
               containerPort: 80
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /healthz-broken
               port: http
             periodSeconds: 5
 ---
