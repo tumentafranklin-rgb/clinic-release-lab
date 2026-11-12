@@ -32,10 +32,41 @@ jobs:
             exit 1
           fi
 
-          curl --fail --silent --show-error \
+          curl --fail --silent --show-error --max-time 5 \
             http://127.0.0.1:8091/ > homepage.html
           grep -F 'Release v1 is running.' homepage.html
 
-      - name: Show container logs if the job fails
+      - name: Show container logs on failure
         if: failure()
         run: docker logs clinic-release-ci
+
+  kubernetes-rollout:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Create a temporary Kubernetes cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: clinic-ci
+
+      - name: Build and load the app image
+        run: |
+          docker build -t clinic-release-lab:v1 .
+          kind load docker-image clinic-release-lab:v1 --name clinic-ci
+
+      - name: Apply the manifest and verify the rollout
+        run: |
+          kubectl --context kind-clinic-ci apply -f k8s/app.yaml
+          kubectl --context kind-clinic-ci -n clinic-release \
+            rollout status deployment/clinic-release --timeout=90s
+
+      - name: Show Kubernetes diagnostics on failure
+        if: failure()
+        run: |
+          kubectl --context kind-clinic-ci -n clinic-release get pods -o wide || true
+          kubectl --context kind-clinic-ci -n clinic-release get events \
+            --sort-by=.lastTimestamp || true
