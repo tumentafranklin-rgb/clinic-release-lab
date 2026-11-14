@@ -64,6 +64,20 @@ jobs:
           kubectl --context kind-clinic-ci -n clinic-release \
             rollout status deployment/clinic-release --timeout=90s
 
+      - name: Verify the app through the Kubernetes Service
+        run: |
+          kubectl --context kind-clinic-ci -n clinic-release run clinic-smoke \
+            --rm -i --restart=Never --image=busybox:1.37 \
+            --pod-running-timeout=90s \
+            --command -- sh -ec '
+              body=$(wget -qO- -T 5 http://clinic-release/healthz)
+              if [ "$body" != "ok" ]; then
+                printf "Expected ok from the Service, got <%s>\n" "$body"
+                exit 1
+              fi
+              printf "Service health check passed: %s\n" "$body"
+            '
+
       - name: Show Kubernetes diagnostics on failure
         if: failure()
         run: |
